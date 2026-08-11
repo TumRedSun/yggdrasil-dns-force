@@ -37,6 +37,17 @@ const val DEFAULT_FORCE_DNS_UPSTREAM = "20b:14e7:9d48:1c5f:490:56b1:6e5a:6ee9"
 // dnsmasq via a DatagramSocket.
 private const val FAKE_DNS_IP = "200::53"
 
+// A captured DNS query extracted from a TUN packet. Forwarded to the
+// upstream DNS server via a DatagramSocket; the response is wrapped in
+// a new IPv6/UDP packet addressed back to the client.
+// Declared at file level because Kotlin does not allow nested class
+// declarations inside an `inner class`.
+private data class DnsQuery(
+    val clientIp: ByteArray,   // 16 bytes (IPv6 source address)
+    val clientPort: Int,        // UDP source port (resolver's ephemeral port)
+    val dnsPayload: ByteArray   // Raw DNS query bytes
+)
+
 open class PacketTunnelProvider: VpnService() {
     companion object {
         const val STATE_INTENT = "eu.neilalexander.yggdrasil.PacketTunnelProvider.STATE_MESSAGE"
@@ -506,12 +517,6 @@ open class PacketTunnelProvider: VpnService() {
         private val fakeDnsIpBytes: ByteArray = InetAddress.getByName(FAKE_DNS_IP).address
         private var forwarderThread: Thread? = null
         private val queryQueue = LinkedBlockingQueue<DnsQuery>()
-
-        private data class DnsQuery(
-            val clientIp: ByteArray,   // 16 bytes (IPv6 source address)
-            val clientPort: Int,        // UDP source port (resolver's ephemeral port)
-            val dnsPayload: ByteArray   // Raw DNS query bytes
-        )
 
         fun start() {
             running.set(true)
