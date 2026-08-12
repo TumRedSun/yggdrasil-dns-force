@@ -558,9 +558,28 @@ open class PacketTunnelProvider: VpnService() {
                 if (packet[24 + i] != fakeDnsIpBytes[i]) return false
             }
 
-            // Check destination port (bytes 46-47) == 53
-            val dstPort = ((packet[46].toInt() and 0xFF) shl 8) or (packet[47].toInt() and 0xFF)
-            if (dstPort != 53) return false
+            // Check destination port (bytes 42-43) == 53
+            //
+            // UDP header layout (starts at byte 40, right after the 40-byte IPv6 header):
+            //   bytes 40-41: source port
+            //   bytes 42-43: destination port   ← this is what we check
+            //   bytes 44-45: UDP length
+            //   bytes 46-47: UDP checksum
+            //   bytes 48+:   payload (DNS message)
+            //
+            // (The previous version of this code incorrectly read bytes 46-47
+            // — the UDP checksum field — and compared it to 53, which never
+            // matched, so no DNS queries were ever intercepted.)
+            val dstPort = ((packet[42].toInt() and 0xFF) shl 8) or (packet[43].toInt() and 0xFF)
+            if (dstPort != 53) {
+                // Debug: log unmatched IPv6/UDP packets destined for our fake
+                // IP but on a different port — helps diagnose DoT (port 853)
+                // fallback behaviour or other unexpected traffic.
+                if (dstPort == 853) {
+                    Log.d(TAG, "Got DoT (port 853) packet to fake DNS IP — ignoring")
+                }
+                return false
+            }
 
             // This is a DNS query for our fake server. Extract the details.
             val srcIp = packet.copyOfRange(8, 24)      // IPv6 source address
